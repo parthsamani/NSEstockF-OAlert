@@ -23,4 +23,3 @@ for sym in FNO_180:
         # Pivot logic -> alert
         # (yaha pura logic hai, sample ke liye short rakha)
     except: continue
-send("✅ Bot connected! Kal 9:15 se alerts start honge")
