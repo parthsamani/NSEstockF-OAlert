@@ -1,15 +1,14 @@
 name: FNO Bot
 on:
   schedule:
-    # 9:15 AM to 3:35 PM IST = 3:45 to 10:05 UTC (15 min interval is safe)
     - cron: '*/15 3-10 * * 1-5'
   workflow_dispatch:
 jobs:
   bot:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.11'
       - run: pip install yfinance pandas requests pytz
