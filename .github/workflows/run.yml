@@ -1,18 +1,19 @@
-name: FNO Bot
+name: Box B Live
 on:
   schedule:
     - cron: '*/15 3-10 * * 1-5'
   workflow_dispatch:
 jobs:
-  bot:
+  scan:
     runs-on: ubuntu-latest
+    timeout-minutes: 14
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: pip install yfinance pandas requests pytz
-      - run: python bot.py
-        env:
+      - run: pip install -r requirements.txt
+      - env:
           TOKEN: ${{ secrets.TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
+        run: python bot.py
