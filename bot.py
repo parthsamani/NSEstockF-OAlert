@@ -1,30 +1,32 @@
-# bot.py - FINAL BOX B STRATEGY - WITH stocks.py
 import yfinance as yf
 import pandas as pd
 import requests, os, time
 from datetime import datetime
 import pytz
-from stocks import ALL_STOCKS
+from stocks import ALL_STOCKS # 200 stocks
 
 TOKEN = os.getenv("TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
-TIMEFRAME = os.getenv("TIMEFRAME", "15m")
-CHANNEL_WIDTH = int(os.getenv("CHANNEL_WIDTH", "5"))
-PERIOD = os.getenv("PERIOD", "20d")
+TIMEFRAME = os.getenv("TIMEFRAME", "5m")
+PERIOD = os.getenv("PERIOD", "5d")
+CHANNEL_W = int(os.getenv("CHANNEL_WIDTH", "5"))
 
-print(f"SETTINGS -> Timeframe: {TIMEFRAME}, Period: {PERIOD}, Width: {CHANNEL_WIDTH}%", flush=True)
-print(f"Total Stocks to Scan: {len(ALL_STOCKS)}", flush=True)
+# Aapki settings
+PIVOT_LEN = 20
+VOLUME_MULT = 1.5
+MOVEMENT_MIN = 1.0
+NEAR_PCT = 0.5
+
+FNO_STOCKS = ["RELIANCE.NS","TCS.NS","INFY.NS","HDFCBANK.NS","ICICIBANK.NS","SBIN.NS","BHARTIARTL.NS","ITC.NS","LT.NS","KOTAKBANK.NS","AXISBANK.NS","BAJFINANCE.NS","MARUTI.NS","ASIANPAINT.NS","WIPRO.NS","HCLTECH.NS","ULTRACEMCO.NS","TITAN.NS","SUNPHARMA.NS","POWERGRID.NS","NTPC.NS","ONGC.NS","TATASTEEL.NS","JSWSTEEL.NS","ADANIENT.NS","ADANIPORTS.NS","GRASIM.NS","DIVISLAB.NS","DRREDDY.NS","CIPLA.NS","BRITANNIA.NS","EICHERMOT.NS","HEROMOTOCO.NS","BAJAJ-AUTO.NS","M&M.NS","TECHM.NS","BPCL.NS","INDUSINDBK.NS","VEDL.NS","HINDUNILVR.NS","NESTLEIND.NS","HINDALCO.NS","COALINDIA.NS","UPL.NS","BAJAJFINSV.NS","SBILIFE.NS","HDFCLIFE.NS","ICICIPRULI.NS"]
 
 def is_market_open():
     ist = pytz.timezone('Asia/Kolkata')
     now = datetime.now(ist)
     if now.weekday() >= 5:
-        print(f"Weekend {now} - No Scan", flush=True)
+        print(f"Weekend {now} - No Alert", flush=True)
         return False
-    start = now.replace(hour=9, minute=15, second=0)
-    end = now.replace(hour=15, minute=35, second=0)
-    if not (start <= now <= end):
-        print(f"Market Closed {now.strftime('%I:%M %p')} - No Scan", flush=True)
+    if not (now.replace(hour=9, minute=15) <= now <= now.replace(hour=15, minute=35)):
+        print(f"Market Closed {now.strftime('%I:%M %p')} - No Alert", flush=True)
         return False
     return True
 
@@ -36,67 +38,64 @@ def send(msg):
     except Exception as e:
         print(f"Send Error: {e}", flush=True)
 
-def get_box_b(df):
-    PIVOT_LEN = 50
-    pivots = []
-    for i in range(PIVOT_LEN, len(df)-PIVOT_LEN):
-        if df['High'].iloc[i] == df['High'].iloc[i-PIVOT_LEN:i+PIVOT_LEN+1].max():
-            pivots.append(df['High'].iloc[i])
-        if df['Low'].iloc[i] == df['Low'].iloc[i-PIVOT_LEN:i+PIVOT_LEN+1].min():
-            pivots.append(df['Low'].iloc[i])
-    pivots = pivots[-50:]
-    if len(pivots) < 6:
-        return None
-    cwidth = (df['High'].tail(300).max() - df['Low'].tail(300).min()) * CHANNEL_WIDTH / 100
-    boxes = []
-    temp = pivots.copy()
-    for _ in range(10):
-        if not temp:
-            break
-        hi = temp[0]
-        cluster = [p for p in temp if abs(p-hi) <= cwidth]
-        if cluster:
-            boxes.append((min(cluster), max(cluster)))
-            temp = [p for p in temp if p not in cluster]
-    boxes = sorted(boxes, key=lambda x: (x[0]+x[1])/2)[:6]
-    if len(boxes) < 4:
-        return None
-    return boxes[1][0], boxes[1][1], boxes[-2][0], boxes[-2][1]
+def get_pivots(df, length=50):
+    ph, pl = [], []
+    highs = df['High'].values
+    lows = df['Low'].values
+    for i in range(length, len(df)-length):
+        if highs[i] == max(highs[i-length:i+length+1]):
+            ph.append((i, highs[i]))
+        if lows[i] == min(lows[i-length:i+length+1]):
+            pl.append((i, lows[i]))
+    return ph, pl
 
 if not is_market_open():
     exit(0)
 
-print(f"Market OPEN - Scanning {len(ALL_STOCKS)} stocks - BOX B...", flush=True)
+print(f"Market OPEN - Scanning {len(FNO_STOCKS)}...", flush=True)
 
-try:
-    requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", data={"chat_id": CHAT_ID, "text": f"✅ *BOX B Bot Started* [{TIMEFRAME}] - Scanning {len(ALL_STOCKS)} stocks", "parse_mode": "Markdown"}, timeout=10)
-except:
-    pass
-
-for sym in ALL_STOCKS:
+for stock in FNO_STOCKS:
     try:
-        df = yf.Ticker(sym).history(period=PERIOD, interval=TIMEFRAME, auto_adjust=True)
-        if df.empty or len(df) < 150:
-            print(f"{sym}: No data {len(df)}", flush=True)
-            time.sleep(0.2)
+        df = yf.Ticker(stock).history(period="5d", interval="5m", auto_adjust=True)
+        if df.empty or len(df) < 100:
+            print(f"{stock}: No data {len(df)}", flush=True)
+            time.sleep(0.3)
             continue
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
-        res = get_box_b(df)
-        if not res:
-            time.sleep(0.2)
+        mov = (df['High'].tail(78).max() - df['Low'].tail(78).min()) / df['Open'].iloc[-78] * 100
+        if mov < MOVEMENT_MIN:
             continue
-        b_lo, b_hi, s_lo, s_hi = res
-        last = df['Close'].iloc[-1]
-        prev = df['Close'].iloc[-2]
-        if prev <= b_hi and last > b_hi:
-            send(f"🔥 *BOX B BREAKOUT* [{TIMEFRAME}]\n`{sym}`\nLTP: {last:.2f}\nBox: {b_lo:.2f}-{b_hi:.2f}")
-        elif prev >= s_lo and last < s_lo:
-            send(f"🔻 *BOX B BREAKDOWN* [{TIMEFRAME}]\n`{sym}`\nLTP: {last:.2f}\nBox: {s_lo:.2f}-{s_hi:.2f}")
-        time.sleep(0.3)
+        if df['Volume'].iloc[-1] < df['Volume'].tail(20).mean() * VOLUME_MULT:
+            continue
+        ph, pl = get_pivots(df, PIVOT_LEN)
+        if len(ph+pl) < 5:
+            continue
+        cwidth = (df['High'].tail(300).max() - df['Low'].tail(300).min()) * CHANNEL_W / 100
+        zones = []
+        for _, price in sorted(ph+pl, key=lambda x: x[0])[-50:]:
+            found=False
+            for z in zones:
+                if abs(z['hi'] - price) <= cwidth:
+                    z['hi'] = max(z['hi'], price); z['lo'] = min(z['lo'], price); found=True; break
+            if not found: zones.append({'hi': price, 'lo': price})
+        cmp = df['Close'].iloc[-1]
+        sl_low = pl[-1][1] if pl else df['Low'].min()
+        sl_high = ph[-1][1] if ph else df['High'].max()
+        ist = pytz.timezone('Asia/Kolkata')
+        now_str = datetime.now(ist).strftime('%I:%M %p')
+        for z in zones:
+            if z['hi'] < cmp and abs(cmp - z['hi'])/cmp*100 <= NEAR_PCT:
+                if z['lo'] <= df['Low'].iloc[-1] <= z['hi'] or z['lo'] <= cmp <= z['hi']:
+                    send(f"🔥 *{stock} - LONG*\nBuying Range: {z['lo']:.2f} - {z['hi']:.2f}\nCMP: {cmp:.2f}\nSL: {float(sl_low):.2f} 🦎\nMove: {mov:.2f}% | Vol: {VOLUME_MULT}x\nTime: {now_str}")
+                    break
+            if z['hi'] > cmp and abs(cmp - z['lo'])/cmp*100 <= NEAR_PCT:
+                if z['lo'] <= df['High'].iloc[-1] <= z['hi'] or z['lo'] <= cmp <= z['hi']:
+                    send(f"🔥 *{stock} - SHORT*\nSelling Range: {z['lo']:.2f} - {z['hi']:.2f}\nCMP: {cmp:.2f}\nSL: {float(sl_high):.2f} 🐍\nMove: {mov:.2f}% | Vol: {VOLUME_MULT}x\nTime: {now_str}")
+                    break
+        time.sleep(0.5)
     except Exception as e:
-        print(f"Error {sym}: {e}", flush=True)
+        print(f"Error {stock}: {e}", flush=True)
         time.sleep(0.3)
         continue
-
-print("Scan Complete - BOX B", flush=True)
+print("Scan Complete", flush=True)
